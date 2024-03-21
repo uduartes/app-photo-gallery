@@ -21,7 +21,7 @@ export class DatabaseService {
   private sqlite: SQLiteConnection = new SQLiteConnection(CapacitorSQLite);
   private db: SQLiteDBConnection;
 
-  private user: WritableSignal<User[]> = signal<User[]>([]);
+  public users: WritableSignal<User[]> = signal<User[]>([]);
 
   constructor() {}
 
@@ -51,6 +51,10 @@ CREATE TABLE IF NOT EXISTS users (
     return true;
   }
 
+  public getUsers() {
+    return this.users;
+  }
+
   async createUser(user: User) {
     const query = `INSERT INTO users (name, email, state) VALUES ('${user.name}','${user.email}',1)`;
     const result = await this.db.execute(query);
@@ -60,7 +64,7 @@ CREATE TABLE IF NOT EXISTS users (
 
   async loadUsers() {
     const users = await this.db.query('SELECT * FROM users');
-    this.user.set(users.values || []);
+    this.users.set(users.values || []);
   }
 
   async updateUser(user: User) {
