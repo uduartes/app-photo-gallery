@@ -14,16 +14,17 @@ export class Tab1Page implements OnInit {
 
   constructor(public db: DatabaseService, private fb: FormBuilder) {}
 
-  ngOnInit(): void {
+  async ngOnInit() {
+    await this.db.initializePlugin();
+
     this.users = this.db.getUsers();
-    console.log('this.users', this.users);
+    this.createForm();
   }
 
   createForm() {
     this.registrationForm = this.fb.group({
       name: ['', Validators.required],
       email: ['', [Validators.required, Validators.email]],
-      state: ['', Validators.required],
     });
   }
 

@@ -26,6 +26,7 @@ export class DatabaseService {
   constructor() {}
 
   async initializePlugin() {
+    debugger
     this.db = await this.sqlite.createConnection(
       DB_USERS,
       false,
@@ -35,6 +36,7 @@ export class DatabaseService {
     );
 
     await this.db.open();
+    console.log("this.db",this.db)
 
     const schema = `
 CREATE TABLE IF NOT EXISTS users (
@@ -56,7 +58,9 @@ CREATE TABLE IF NOT EXISTS users (
   }
 
   async createUser(user: User) {
+    console.log('DATA: ', user);
     const query = `INSERT INTO users (name, email, state) VALUES ('${user.name}','${user.email}',1)`;
+    console.log("query: ",query)
     const result = await this.db.execute(query);
     this.loadUsers();
     return result;
