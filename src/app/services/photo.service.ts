@@ -8,6 +8,7 @@ import {
 import { Capacitor } from '@capacitor/core';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Preferences } from '@capacitor/preferences';
+import { Platform } from '@ionic/angular';
 
 export interface UserPhoto {
   filepath: string;
@@ -19,19 +20,49 @@ export interface UserPhoto {
 })
 export class PhotoService {
   public photos: UserPhoto[] = [];
+  private PHOTO_STORAGE: string = 'photos';
+  private platform: Platform;
 
-  constructor() {}
+  constructor(platform: Platform) {
+    this.platform = platform;
+  }
 
   public async addNewToGallery() {
+    //Toma una foto desde el dispositivo camara
     const capturedPhoto = await Camera.getPhoto({
       resultType: CameraResultType.Uri,
       source: CameraSource.Camera,
       quality: 100,
     });
 
+    //Guardar la foto en archivos del sistema
     const savedImageFile = await this.savePicture(capturedPhoto);
 
+    //Guardar la foto en un arreglo en memoria, para mostrarlo en el componente TAB GALERY
     this.photos.unshift(savedImageFile);
+
+    //GUARDAR DATOS DE TODO EL ARREGLO DE FOTOS EN UN JSON LLAVE - VALOR
+    Preferences.set({
+      key: this.PHOTO_STORAGE,
+      value: JSON.stringify(this.photos),
+    });
+  }
+
+  public async loadSaved() {
+    //RECUPERANDO VALORES DE LA LLAVE this.PHOTO_STORAGE PARA ASIGNARLA A LA VARIABLE DE MEMORIA THIS.PHOTOS
+    const { value } = await Preferences.get({ key: this.PHOTO_STORAGE });
+    this.photos = (value ? JSON.parse(value) : []) as UserPhoto[];
+
+    if (!this.platform.is('hybrid')) {
+      for (let photo of this.photos) {
+        const readFile = await Filesystem.readFile({
+          path: photo.filepath,
+          directory: Directory.Data,
+        });
+
+        photo.webviewPath = `data:image/jpeg;base64,${readFile.data}`;
+      }
+    }
   }
 
   private async savePicture(photo: Photo) {
@@ -44,18 +75,40 @@ export class PhotoService {
       directory: Directory.Data,
     });
 
-    return {
-      filepath: fileName,
-      webviewPath: photo.webPath,
-    };
+    //Para dispositivos Mobiles
+    if (this.platform.is('hybrid')) {
+      return {
+        filepath: savedFile.uri,
+        webviewPath: Capacitor.convertFileSrc(savedFile.uri),
+      };
+    }
+    //Para la web
+    else {
+      return {
+        filepath: fileName,
+        webviewPath: photo.webPath,
+      };
+    }
   }
 
   private async readAsBase64(photo: Photo) {
     // Fetch the photo, read as a blob, then convert to base64 format
-    const response = await fetch(photo.webPath!);
-    const blob = await response.blob();
 
-    return (await this.convertBlobToBase64(blob)) as string;
+    //Para dispositivos mobiles
+    if (this.platform.is('hybrid')) {
+      const file = await Filesystem.readFile({
+        path: photo.path,
+      });
+
+      return file.data;
+    }
+    //para web
+    else {
+      const response = await fetch(photo.webPath!);
+      const blob = await response.blob();
+
+      return (await this.convertBlobToBase64(blob)) as string;
+    }
   }
 
   private convertBlobToBase64 = (blob: Blob) =>
