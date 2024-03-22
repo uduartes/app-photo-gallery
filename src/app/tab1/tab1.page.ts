@@ -8,17 +8,19 @@ import { FormBuilder, FormGroup, Validators } from '@angular/forms';
   styleUrls: ['tab1.page.scss'],
 })
 export class Tab1Page implements OnInit {
-  public users: any;
+  public users: User[] = [];
 
   registrationForm: FormGroup;
 
-  constructor(public db: DatabaseService, private fb: FormBuilder) {}
+  constructor(
+    private fb: FormBuilder,
+    private databaseService: DatabaseService
+  ) {}
 
   async ngOnInit() {
-    await this.db.initializePlugin();
-
-    this.users = this.db.getUsers();
     this.createForm();
+    this.databaseService.init();
+    this.loadUsers();
   }
 
   createForm() {
@@ -28,16 +30,39 @@ export class Tab1Page implements OnInit {
     });
   }
 
+  loadUsers() {
+    this.databaseService.loadUsers().then((users) => {
+      console.log('users:', users);
+      this.users = users;
+    });
+  }
+
   addUser() {
     if (this.registrationForm.valid) {
       const newUser: User = {
         id: null, // Assuming ID is auto-generated
         ...this.registrationForm.value,
       };
-      this.db.createUser(newUser).then(() => {
-        console.log('User registered successfully');
-        // Handle post-registration logic here, e.g., clear form, show message, navigate
-      });
+
+      this.databaseService.createUser(newUser).then(
+        () => {
+          this.loadUsers();
+          this.registrationForm.reset();
+        },
+        (error) => {
+          console.log('Error: ', error);
+        }
+      );
     }
+  }
+
+  editUser(user: User) {
+    this.databaseService.updateUser(user);
+    this.loadUsers();
+  }
+
+  deleteUser(id) {
+    this.databaseService.deleteUserById(id);
+    this.loadUsers();
   }
 }

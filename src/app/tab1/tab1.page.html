@@ -22,4 +22,16 @@
       >Register</ion-button
     >
   </form>
+
+  <ion-list>
+    <ion-list-header>
+      <ion-label>Usuarios Registrados</ion-label>
+    </ion-list-header>
+    <ion-item *ngFor="let user of users">
+      <ion-label>
+        <h2>{{ user.name }}</h2>
+        <p>Email: {{ user.email }}</p>
+      </ion-label>
+    </ion-item>
+  </ion-list>
 </ion-content>

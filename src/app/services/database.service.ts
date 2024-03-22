@@ -1,87 +1,206 @@
+import { HttpClient } from '@angular/common/http';
 import { Injectable, WritableSignal, signal } from '@angular/core';
 import {
   CapacitorSQLite,
+  JsonSQLite,
   SQLiteConnection,
   SQLiteDBConnection,
+  capSQLiteChanges,
+  capSQLiteValues,
 } from '@capacitor-community/sqlite';
-
-const DB_USERS = 'myDbUsers';
+import { Device } from '@capacitor/device';
+import { Preferences } from '@capacitor/preferences';
+import { BehaviorSubject } from 'rxjs';
 
 export interface User {
   id: number;
   name: string;
   email: string;
-  state: number;
 }
 
 @Injectable({
   providedIn: 'root',
 })
 export class DatabaseService {
-  private sqlite: SQLiteConnection = new SQLiteConnection(CapacitorSQLite);
-  private db: SQLiteDBConnection;
+  private sqlite: SQLiteConnection;
+  private db: SQLiteDBConnection | null = null;
+  private dbName: string;
 
-  public users: WritableSignal<User[]> = signal<User[]>([]);
+  public dbready: BehaviorSubject<boolean>;
+  public isWeb: boolean;
+  public isIOS: boolean;
 
-  constructor() {}
+  public: WritableSignal<User[]> = signal<User[]>([]);
 
-  async initializePlugin() {
-    debugger
-    this.db = await this.sqlite.createConnection(
-      DB_USERS,
-      false,
-      'no-encryption',
-      1,
-      false
-    );
-
-    await this.db.open();
-    console.log("this.db",this.db)
-
-    const schema = `
-CREATE TABLE IF NOT EXISTS users (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name TEXT NOT NULL,
-  email TEXT,
-  state INTEGER
-  );
-  `;
-
-    await this.db.execute(schema);
-    this.loadUsers();
-
-    return true;
+  constructor(private http: HttpClient) {
+    this.sqlite = new SQLiteConnection(CapacitorSQLite);
+    this.dbready = new BehaviorSubject(false);
   }
 
-  public getUsers() {
-    return this.users;
+  async init() {
+    const info = await Device.getInfo();
+    console.log('Platform: ', info);
+
+    const sqlite = CapacitorSQLite as any;
+
+    if (info.platform == 'android') {
+      try {
+        await sqlite.requestPermissions();
+      } catch (error) {
+        console.log('se necesitan permisos!');
+      }
+    } else if (info.platform == 'ios') {
+      this.isIOS = true;
+    } else if (info.platform == 'web') {
+      sqlite.initWebStore();
+    }
+
+    this.setupDatabase();
+  }
+
+  async setupDatabase() {
+    const dbSetup = await Preferences.get({ key: 'first_setup_key' });
+
+    if (!dbSetup.value) {
+      this.downloadDatabase();
+    } else {
+      this.dbName = await this.getDbName();
+      await CapacitorSQLite.initWebStore();
+      await CapacitorSQLite.createConnection({ database: this.dbName });
+      await CapacitorSQLite.open({ database: this.dbName });
+
+      this.dbready.next(true);
+    }
+  }
+
+  downloadDatabase() {
+    this.http
+      .get('assets/db/db.json')
+      .subscribe(async (jsonExport: JsonSQLite) => {
+        const jsonstring = JSON.stringify(jsonExport);
+        const isValid = await CapacitorSQLite.isJsonValid({ jsonstring });
+
+        if (isValid.result) {
+          this.dbName = jsonExport.database;
+          CapacitorSQLite.importFromJson({ jsonstring });
+          CapacitorSQLite.createConnection({ database: this.dbName });
+          CapacitorSQLite.open({ database: this.dbName });
+
+          await Preferences.set({ key: 'first_setup_key', value: '1' });
+          await Preferences.set({ key: 'dbname', value: this.dbName });
+
+          this.dbready.next(true);
+        }
+      });
+  }
+
+  async getDbName() {
+    if (!this.dbName) {
+      const dbname = await Preferences.get({ key: 'dbname' });
+
+      if (dbname.value) {
+        return dbname.value;
+      } else {
+        return null;
+      }
+    } else {
+      return null;
+    }
   }
 
   async createUser(user: User) {
-    console.log('DATA: ', user);
-    const query = `INSERT INTO users (name, email, state) VALUES ('${user.name}','${user.email}',1)`;
-    console.log("query: ",query)
-    const result = await this.db.execute(query);
-    this.loadUsers();
-    return result;
+    let sql = 'INSERT INTO users (name, email) VALUES (?, ?)';
+    const dbName = await this.getDbName();
+    return CapacitorSQLite.executeSet({
+      database: dbName,
+      set: [
+        {
+          statement: sql,
+          values: [user.name, user.email],
+        },
+      ],
+    })
+      .then((changes: capSQLiteChanges) => {
+        if (this.isWeb) {
+          CapacitorSQLite.saveToStore({ database: dbName });
+        }
+
+        console.log('changes:', changes);
+        return changes;
+      })
+      .catch((err) => Promise.reject(err));
   }
 
   async loadUsers() {
-    const users = await this.db.query('SELECT * FROM users');
-    this.users.set(users.values || []);
+    let sql = 'SELECT * FROM users';
+    const dbName = await this.getDbName();
+
+    return CapacitorSQLite.query({
+      database: dbName,
+      statement: sql,
+      values: [],
+    }).then((response: capSQLiteValues) => {
+      let users: User[] = [];
+
+      if (this.isIOS && response.values.length > 0) {
+        response.values.shift();
+      }
+
+      response.values.forEach((user: any) => {
+        users.push({
+          id: user.id,
+          name: user.name,
+          email: user.email,
+        });
+      });
+      return users;
+    });
   }
 
   async updateUser(user: User) {
-    const query = `UPDATE users SET name = '${user.name}', email = '${user.email}', state = '${user.state}' WHERE id = ${user.id}`;
-    const result = await this.db.execute(query);
-    this.loadUsers();
-    return result;
+    let sql = 'UPDATE users SET name=?, email=? WHERE id=?';
+    const dbName = await this.getDbName();
+
+    return CapacitorSQLite.executeSet({
+      database: dbName,
+      set: [
+        {
+          statement: sql,
+          values: [user.name, user.email, user.id],
+        },
+      ],
+    })
+      .then((changes: capSQLiteChanges) => {
+        if (this.isWeb) {
+          CapacitorSQLite.saveToStore({ database: dbName });
+        }
+
+        console.log('changes:', changes);
+        return changes;
+      })
+      .catch((err) => Promise.reject(err));
   }
 
   async deleteUserById(id: number) {
-    const query = `DELETE users  WHERE id = ${id}`;
-    const result = await this.db.execute(query);
-    this.loadUsers();
-    return result;
+    let sql = 'DELETE FROM users WHERE id=?';
+    const dbName = await this.getDbName();
+    return CapacitorSQLite.executeSet({
+      database: dbName,
+      set: [
+        {
+          statement: sql,
+          values: [id],
+        },
+      ],
+    })
+      .then((changes: capSQLiteChanges) => {
+        if (this.isWeb) {
+          CapacitorSQLite.saveToStore({ database: dbName });
+        }
+
+        console.log('changes:', changes);
+        return changes;
+      })
+      .catch((err) => Promise.reject(err));
   }
 }
