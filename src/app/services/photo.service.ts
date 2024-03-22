@@ -101,6 +101,9 @@ export class PhotoService {
 
     const filename = photo.filepath.substr(photo.filepath.lastIndexOf('/') + 1);
 
+    console.log('filename', filename);
+
+    // delete photo file
     await Filesystem.deleteFile({
       path: filename,
       directory: Directory.Data,
